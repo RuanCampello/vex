@@ -49,7 +49,7 @@ pub fn slotLocation(slot: SlotValue) PhysicalLocation {
 }
 
 test "encode/decode from memory" {
-    var x = 0;
+    var x: u8 = 0;
     const ptr: *anyopaque = &x;
     const slot = encodeMemory(ptr);
 
@@ -66,7 +66,7 @@ test "encode/decode from disk" {
 }
 
 test "memory and disk slots are distinguishable" {
-    var x = 0;
+    var x: u8 = 0;
     const mem_slot = encodeMemory(&x);
     const disk_slot = encodeDisk(0x1234);
 

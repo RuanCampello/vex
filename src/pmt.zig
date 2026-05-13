@@ -109,7 +109,16 @@ const FreeList = struct {
 };
 
 test "alloc hands out sequential PageIds" {
-    @panic("TESTS ARE RUNNING!");
+    var pmt = try PageMappingTable.init(std.testing.allocator, 16);
+    defer pmt.deinit();
+
+    const a = try pmt.alloc();
+    const b = try pmt.alloc();
+    const c = try pmt.alloc();
+
+    try std.testing.expectEqual(@as(PageId, 0), a);
+    try std.testing.expectEqual(@as(PageId, 1), b);
+    try std.testing.expectEqual(@as(PageId, 2), c);
 }
 
 test "cas succeeds when expected matches" {

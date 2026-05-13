@@ -56,3 +56,21 @@ test "encode/decode from memory" {
     try std.testing.expectEqual(PhysicalLocation.memory, slotLocation(slot));
     try std.testing.expectEqual(ptr, decodeMemory(slot));
 }
+
+test "encode/decode from disk" {
+    const offset = 0x0000_DEAD_BEEF_0000;
+    const slot = encodeDisk(offset);
+
+    try std.testing.expectEqual(PhysicalLocation.disk, slotLocation(slot));
+    try std.testing.expectEqual(offset, decodeDisk(slot));
+}
+
+test "memory and disk slots are distinguishable" {
+    var x = 0;
+    const mem_slot = encodeMemory(&x);
+    const disk_slot = encodeDisk(0x1234);
+
+    try std.testing.expect(slotLocation(mem_slot) == .memory);
+    try std.testing.expect(slotLocation(disk_slot) == .disk);
+    try std.testing.expect(mem_slot != disk_slot);
+}

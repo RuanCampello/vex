@@ -107,3 +107,84 @@ const FreeList = struct {
         return self.ids.popOrNull();
     }
 };
+
+test "alloc hands out sequential PageIds" {
+    @panic("TESTS ARE RUNNING!");
+}
+
+test "cas succeeds when expected matches" {
+    var pmt = try PageMappingTable.init(std.testing.allocator, 16);
+    defer pmt.deinit();
+
+    const pid = try pmt.alloc();
+    const old = types.encodeDisk(1);
+    const new = types.encodeDisk(2);
+
+    pmt.store(pid, old);
+
+    const result = pmt.cas(pid, old, new);
+
+    try std.testing.expectEqual(PageMappingTable.CasResult.ok, result);
+    try std.testing.expectEqual(new, pmt.load(pid));
+}
+
+test "cas fails when expected does not match" {
+    var pmt = try PageMappingTable.init(std.testing.allocator, 16);
+    defer pmt.deinit();
+
+    const pid = try pmt.alloc();
+    const actual = types.encodeDisk(99);
+    const wrong_expected = types.encodeDisk(1);
+    const new = types.encodeDisk(2);
+    pmt.store(pid, actual);
+
+    const result = pmt.cas(pid, wrong_expected, new);
+    switch (result) {
+        .ok => return error.ExpectedContention,
+        .contention => |seen| try std.testing.expectEqual(actual, seen),
+    }
+
+    try std.testing.expectEqual(actual, pmt.load(pid));
+}
+
+test "capacity exhaustion returns error" {
+    var pmt = try PageMappingTable.init(std.testing.allocator, 2);
+    defer pmt.deinit();
+
+    _ = try pmt.alloc();
+    _ = try pmt.alloc();
+    try std.testing.expectError(error.OutOfPageIds, pmt.alloc());
+}
+
+test "concurrent cas: only one writer wins per slot" {
+    const thread_count = 8;
+    const Ctx = struct {
+        pmt: *PageMappingTable,
+        pid: PageId,
+        wins: std.atomic.Value(u32),
+
+        fn run(ctx: *@This()) void {
+            const desired = types.encodeDisk(0xBEEF);
+            const result = ctx.pmt.cas(ctx.pid, NULL_SLOT, desired);
+            if (result == .ok) {
+                _ = ctx.wins.fetchAdd(1, .monotonic);
+            }
+        }
+    };
+
+    var pmt = try PageMappingTable.init(std.testing.allocator, 16);
+    defer pmt.deinit();
+    const pid = try pmt.alloc();
+
+    var ctx = Ctx{
+        .pmt = &pmt,
+        .pid = pid,
+        .wins = std.atomic.Value(u32).init(0),
+    };
+
+    var threads: [thread_count]std.Thread = undefined;
+    for (&threads) |*t| t.* = try std.Thread.spawn(.{}, Ctx.run, .{&ctx});
+    for (&threads) |*t| t.join();
+
+    try std.testing.expectEqual(@as(u32, 1), ctx.wins.load(.monotonic));
+}

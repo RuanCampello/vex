@@ -47,3 +47,12 @@ pub fn decodeDisk(slot: SlotValue) u64 {
 pub fn slotLocation(slot: SlotValue) PhysicalLocation {
     return if (slot & DISK_FLAG != 0) .disk else .memory;
 }
+
+test "encode/decode from memory" {
+    var x = 0;
+    const ptr: *anyopaque = &x;
+    const slot = encodeMemory(ptr);
+
+    try std.testing.expectEqual(PhysicalLocation.memory, slotLocation(slot));
+    try std.testing.expectEqual(ptr, decodeMemory(slot));
+}

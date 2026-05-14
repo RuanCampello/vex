@@ -305,6 +305,26 @@ test "Delta: prepend deltas and walk chain" {
     try std.testing.expect(d2.content == .kind);
 }
 
+test "Delta: lsn accessor covers all delta variants" {
+    const alloc = std.testing.allocator;
+
+    const cases = [_]DeltaKind{
+        .{ .insert = .{ .key = "k", .value = "v", .lsn = 10 } },
+        .{ .update = .{ .key = "k", .value = "v", .lsn = 20 } },
+        .{ .delete = .{ .key = "k", .lsn = 30 } },
+        .{ .remove_node = .{ .lsn = 40 } },
+        .{ .flush = .{ .disk_offset = 0, .max_flushed_lsn = 0 } },
+    };
+
+    const expected_lsns = [_]?Lsn{ 10, 20, 30, 40, null };
+
+    for (cases, expected_lsns) |c, exp| {
+        const node = try Delta.newDelta(alloc, c);
+        alloc.destroy(node); // keys are not owned here (stack literals) so just destroy
+        try std.testing.expectEqual(exp, c.lsn());
+    }
+}
+
 test "Page: get returns correct entry" {
     const alloc = std.testing.allocator;
 

@@ -48,12 +48,22 @@ pub const Delta = struct {
     }
 };
 
+/// Consolidated and sorted snapshot of a page's state
+///
+/// *Key invariants*:
+///   - entries are sorted by key in ascending order, no duplicate keys
+///   - every key k satisfies: low_key <= k < high_key  (B-link semantics)
+///   - all entries are the same variant (record or child_pid) matching `kind`
 pub const Page = struct {
     kind: PageKind,
+    /// null = negative infinity (leftmost page at this level)
     low_key: ?Key,
+    /// null = positive infinity (rightmost page at this level)
     high_key: ?Key,
+    /// B-link pointer; null only on the rightmost page at a level
     right_sibling: ?PageId,
     entries: std.ArrayList(Entry),
+    /// Highest LSN among all entries on this page after consolidation
     max_lsn: Lsn,
 
     pub const Entry = struct { key: Key, value: PageEntry };

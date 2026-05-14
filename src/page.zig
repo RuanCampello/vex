@@ -304,3 +304,67 @@ test "Delta: prepend deltas and walk chain" {
     try std.testing.expectEqual(terminal, d2.getNode());
     try std.testing.expect(d2.content == .kind);
 }
+
+test "Page: get returns correct entry" {
+    const alloc = std.testing.allocator;
+
+    var base = Page.init(.leaf, null, null, null);
+    defer base.deinit(alloc);
+
+    try base.entries.append(alloc, .{
+        .key = try dupeKey(alloc, "cat"),
+        .value = .{ .record = try dupeVal(alloc, "meow") },
+    });
+    try base.entries.append(alloc, .{
+        .key = try dupeKey(alloc, "dog"),
+        .value = .{ .record = try dupeVal(alloc, "woof") },
+    });
+
+    const found = base.get("dog");
+    try std.testing.expect(found != null);
+    try std.testing.expectEqualSlices(u8, "woof", found.?.record);
+
+    try std.testing.expect(base.get("fish") == null);
+}
+
+test "Page: find insertion point" {
+    const alloc = std.testing.allocator;
+
+    var base = Page.init(.leaf, null, null, null);
+    defer base.deinit(alloc);
+
+    try base.entries.append(alloc, .{
+        .key = try dupeKey(alloc, "a"),
+        .value = .{ .record = try dupeVal(alloc, "1") },
+    });
+    try base.entries.append(alloc, .{
+        .key = try dupeKey(alloc, "c"),
+        .value = .{ .record = try dupeVal(alloc, "3") },
+    });
+
+    const r = base.find("b");
+    try std.testing.expect(!r.found);
+    try std.testing.expectEqual(@as(usize, 1), r.index); // 'b' slots in between a and c
+}
+
+test "Page: validate passes on well-formed leaf page" {
+    const alloc = std.testing.allocator;
+
+    var base = Page.init(.leaf, null, null, null);
+    defer base.deinit(alloc);
+
+    try base.entries.append(alloc, .{
+        .key = try dupeKey(alloc, "apple"),
+        .value = .{ .record = try dupeVal(alloc, "v1") },
+    });
+    try base.entries.append(alloc, .{
+        .key = try dupeKey(alloc, "mango"),
+        .value = .{ .record = try dupeVal(alloc, "v2") },
+    });
+    try base.entries.append(alloc, .{
+        .key = try dupeKey(alloc, "zebra"),
+        .value = .{ .record = try dupeVal(alloc, "v3") },
+    });
+
+    base.validate(); // must not panic
+}

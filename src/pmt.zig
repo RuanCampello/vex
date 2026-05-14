@@ -4,6 +4,8 @@ const types = @import("types.zig");
 const PageId = types.PageId;
 const SlotValue = types.SlotValue;
 
+const Allocator = std.mem.Allocator;
+
 /// Sentinel for a slot that has never been written
 /// Nothing should ever try to decode a null slot
 pub const NULL_SLOT: SlotValue = 0;
@@ -15,13 +17,13 @@ pub const NULL_SLOT: SlotValue = 0;
 /// freed ids are recycled through a simple free list
 pub const PageMappingTable = struct {
     slots: []std.atomic.Value(SlotValue),
-    allocator: std.mem.Allocator,
+    allocator: Allocator,
     next: std.atomic.Value(u64),
     /// PageIds waiting to be recycled
     /// Caller must only push a PageId here after the epoch taht could have seen it drained
     free_list: FreeList,
 
-    pub fn init(allocator: std.mem.Allocator, capacity: usize) !PageMappingTable {
+    pub fn init(allocator: Allocator, capacity: usize) !PageMappingTable {
         const slots = try allocator.alloc(std.atomic.Value(SlotValue), capacity);
         for (slots) |*slot| slot.store(NULL_SLOT, .monotonic);
 
@@ -29,12 +31,12 @@ pub const PageMappingTable = struct {
             .slots = slots,
             .allocator = allocator,
             .next = std.atomic.Value(u64).init(0),
-            .free_list = FreeList.init(allocator),
+            .free_list = FreeList.init(),
         };
     }
 
     pub fn deinit(self: *PageMappingTable) void {
-        self.free_list.deinit();
+        self.free_list.deinit(self.allocator);
         self.allocator.free(self.slots);
     }
 
@@ -82,29 +84,32 @@ pub const PageMappingTable = struct {
 
 // TODO: this will be probably replaced by a lock-free queue
 const FreeList = struct {
-    mutex: std.Thread.Mutex,
+    mutex: std.atomic.Mutex,
     ids: std.ArrayList(PageId),
 
-    fn init(allocator: std.mem.Allocator) FreeList {
-        return .{ .mutex = .{}, .ids = std.ArrayList(PageId).init(allocator) };
+    fn init() FreeList {
+        return .{
+            .mutex = .unlocked,
+            .ids = .empty,
+        };
     }
 
-    fn deinit(self: *FreeList) void {
-        self.ids.deinit();
+    fn deinit(self: *FreeList, alloc: Allocator) void {
+        self.ids.deinit(alloc);
     }
 
-    fn push(self: *FreeList, id: PageId) !void {
-        self.mutex.lock();
+    fn push(self: *FreeList, alloc: Allocator, id: PageId) !void {
+        while (!self.mutex.tryLock()) {}
         defer self.mutex.unlock();
 
-        try self.ids.append(id);
+        try self.ids.append(alloc, id);
     }
 
     fn pop(self: *FreeList) ?PageId {
-        self.mutex.lock();
+        while (!self.mutex.tryLock()) {}
         defer self.mutex.unlock();
 
-        return self.ids.popOrNull();
+        return self.ids.pop();
     }
 };
 

@@ -86,7 +86,7 @@ pub const Page = struct {
             alloc.free(e.key);
             switch (e.value) {
                 .record => |v| alloc.free(v),
-                .child_pid => {},
+                .child => {},
             }
         }
 
@@ -211,4 +211,96 @@ pub fn keyOrder(a: Key, b: Key) std.math.Order {
 
 pub fn keyCmp(a: Key, b: Key) bool {
     return std.mem.lessThan(u8, a, b);
+}
+
+pub fn freeChain(alloc: Allocator, head: *Delta) void {
+    var curr: ?*Delta = head;
+
+    while (curr) |node| {
+        const nxt = node.next;
+        switch (node.content) {
+            .kind => |*d| freeDeltaKindKeys(alloc, d),
+            .page => |*b| b.deinit(alloc),
+        }
+
+        alloc.destroy(node);
+        curr = nxt;
+    }
+}
+
+pub fn freeDeltaKindKeys(alloc: Allocator, d: *const DeltaKind) void {
+    switch (d.*) {
+        .insert => |v| {
+            alloc.free(v.key);
+            alloc.free(v.value);
+        },
+        .update => |v| {
+            alloc.free(v.key);
+            alloc.free(v.value);
+        },
+        .delete => |v| alloc.free(v.key),
+        .split_child => |v| alloc.free(v.separator),
+        .index_entry => |v| {
+            alloc.free(v.separator_low);
+            alloc.free(v.separator_high);
+        },
+        .index_entry_delete => |v| {
+            alloc.free(v.separator);
+            alloc.free(v.new_key);
+        },
+        .remove_node => {},
+        .merge => |v| alloc.free(v.separator),
+        .flush => {},
+    }
+}
+
+fn dupeKey(alloc: Allocator, k: []const u8) !Key {
+    return alloc.dupe(u8, k);
+}
+
+fn dupeVal(alloc: Allocator, v: []const u8) ![]const u8 {
+    return alloc.dupe(u8, v);
+}
+
+test "Delta: single base page chain" {
+    const alloc = std.testing.allocator;
+
+    const base = Page.init(.leaf, null, null, null);
+    const head = try Delta.newPage(alloc, base);
+    defer freeChain(alloc, head);
+
+    try std.testing.expectEqual(@as(usize, 1), head.len());
+    try std.testing.expect(head.content == .page);
+    try std.testing.expectEqual(head, head.getNode());
+}
+
+test "Delta: prepend deltas and walk chain" {
+    const alloc = std.testing.allocator;
+
+    const base = Page.init(.leaf, null, null, null);
+    const terminal = try Delta.newPage(alloc, base);
+
+    const d1 = try Delta.newDelta(alloc, .{
+        .insert = .{
+            .key = try dupeKey(alloc, "apple"),
+            .value = try dupeVal(alloc, "1"),
+            .lsn = 1,
+        },
+    });
+    d1.next = terminal;
+
+    const d2 = try Delta.newDelta(alloc, .{
+        .insert = .{
+            .key = try dupeKey(alloc, "banana"),
+            .value = try dupeVal(alloc, "2"),
+            .lsn = 2,
+        },
+    });
+    d2.next = d1;
+
+    defer freeChain(alloc, d2);
+
+    try std.testing.expectEqual(@as(usize, 3), d2.len());
+    try std.testing.expectEqual(terminal, d2.getNode());
+    try std.testing.expect(d2.content == .kind);
 }
